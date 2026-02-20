@@ -77,7 +77,7 @@ let gatewayTime = "";
 const MFC = {
   mfc_1: {
     id: 0,
-    name: "",
+    name: "X",
     lastValue: null,
     deviceState: false,
     lastFlow: 0.0,
@@ -86,7 +86,7 @@ const MFC = {
   },
   mfc_2: {
     id: 1,
-    name: "",
+    name: "E",
     lastValue: null,
     deviceState: false,
     lastFlow: 0.0,
@@ -690,11 +690,13 @@ app.get("/device/:deviceId/metrics", (req, res) => {
 
   if (deviceId === "dev_01") {
     res.json({
+      name: MFC.mfc_1.name,
       setpoint: MFC.mfc_1.lastSetpoint,
       flow: MFC.mfc_1.lastFlow,
     });
   } else if (deviceId === "dev_02") {
     res.json({
+      name: MFC.mfc_2.name,
       setpoint: MFC.mfc_2.lastSetpoint,
       flow: MFC.mfc_2.lastFlow,
     });

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react'
 
-export function DropdownButton({ selected: selectedProp, onChange, sessionActive, gasOptions}) {
+export function DropdownButton({ selected: selectedProp, onChange, sessionActive, gasOptions, hasError = false }) {
   // const gasOptions = [
   //   { label: 'Nitrous Oxide (N2O)', value: 'n2o' },
   //   { label: 'Acetylene (C2H2)', value: 'c2h2' },
@@ -40,9 +40,14 @@ export function DropdownButton({ selected: selectedProp, onChange, sessionActive
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="px-3 py-1 bg-slate-100 rounded text-sm font-medium hover:bg-slate-200"
+        className={`px-3 py-1 rounded text-sm font-medium border ${
+          hasError
+            ? 'bg-red-50 border-red-500 text-red-700 hover:bg-red-100'
+            : 'bg-slate-100 border-slate-200 hover:bg-slate-200'
+        }`}
         aria-haspopup="listbox"
         aria-expanded={open}
+        aria-invalid={hasError}
         disabled={sessionActive}
       >
         {currentLabel}

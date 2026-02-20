@@ -22,6 +22,7 @@ export function StatusCards({
   gasOptions,
   selectedGas,
   onSelectGas,
+  gasSelectionError = false,
   onMetricsUpdate,
   onDataUpdate,
 }) {
@@ -313,6 +314,7 @@ export function StatusCards({
             onChange={onSelectGas}
             sessionActive={sessionActive}
             gasOptions={gasOptions}
+            hasError={gasSelectionError}
           />
         </div>
       </div>

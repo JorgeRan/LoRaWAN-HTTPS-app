@@ -140,6 +140,8 @@ export function App() {
   const [sessionActive, setSessionActive] = useState(false);
   // Track selected gas per device
   const [selectedGases, setSelectedGases] = useState({});
+  const [invalidGasDeviceIds, setInvalidGasDeviceIds] = useState({});
+  const [sessionWarning, setSessionWarning] = useState(null);
   // Map of sensors available per end-device. Sensor ids correspond to suffixes used in FlowChart (e.g., 'mfc0', 'mfc1')
   // Sensors per device, now with test MFCs for dev_02
   const DEVICE_SENSORS = {
@@ -309,6 +311,24 @@ export function App() {
       : null;
 
   const handleStartSession = async () => {
+    const currentNodeDevices = activeNode?.devices || [];
+    const missingGasDevices = currentNodeDevices.filter(
+      (dev) => !selectedGases[dev.id],
+    );
+
+    if (missingGasDevices.length > 0) {
+      const invalidMap = Object.fromEntries(
+        missingGasDevices.map((dev) => [dev.id, true]),
+      );
+      setInvalidGasDeviceIds(invalidMap);
+      setSessionWarning(
+        `Select a gas for every device in ${activeNode?.name || "this node"} before starting the session.`,
+      );
+      return;
+    }
+
+    setInvalidGasDeviceIds({});
+    setSessionWarning(null);
     setSessionActive(true);
     setLoading(true);
     try {
@@ -377,8 +397,8 @@ export function App() {
       <main className="max-w-8xl mx-auto px-8 py-8">
         {/* Top Grid: Status & Location */}
         <div className="mb-8">
-          <div className="flex items-center justify-between mb-6">
-            <div className="grid grid-cols-2 space-x-8">
+          <div className="flex items-center justify-between mb-6 sm:flex-row flex-col">
+            <div className="grid grid-cols-2 lg:space-x-8 lg:gap-0 gap-6 sm:mb-4 mb-4">
               <h2 className="text-xl font-bold text-slate-900">
                 Device Overview
               </h2>
@@ -444,7 +464,12 @@ export function App() {
               </button>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-8">
+          {sessionWarning && (
+            <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
+              {sessionWarning}
+            </div>
+          )}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             {activeNode &&
               activeNode.type !== "Wind Sensor" &&
               activeNode.devices &&
@@ -458,9 +483,17 @@ export function App() {
                   onError={setError}
                   metrics={metrics[dev.id] || { flow: 0, setpoint: 0 }}
                   selectedGas={selectedGases[dev.id]}
-                  onSelectGas={(gas) =>
-                    setSelectedGases((prev) => ({ ...prev, [dev.id]: gas }))
-                  }
+                  onSelectGas={(gas) => {
+                    setSelectedGases((prev) => ({ ...prev, [dev.id]: gas }));
+                    setInvalidGasDeviceIds((prev) => {
+                      if (!prev[dev.id]) return prev;
+                      const next = { ...prev };
+                      delete next[dev.id];
+                      return next;
+                    });
+                    setSessionWarning(null);
+                  }}
+                  gasSelectionError={!!invalidGasDeviceIds[dev.id]}
                   onDataUpdate={(buffer) =>
                     setChartBuffers((prev) => ({
                       ...prev,

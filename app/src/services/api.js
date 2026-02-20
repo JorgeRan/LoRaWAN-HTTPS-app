@@ -1,7 +1,16 @@
 
 // Send selected gas for a device (downlink)
+const API_BASE_URL = (() => {
+  const fromEnv = import.meta.env.VITE_API_BASE_URL?.trim();
+  if (fromEnv) return fromEnv;
 
-const API_BASE_URL = "http://localhost:3000";
+  if (typeof window !== "undefined") {
+    const protocol = window.location.protocol === "https:" ? "https:" : "http:";
+    return `${protocol}//${window.location.hostname}:3000`;
+  }
+
+  return "http://localhost:3000";
+})();
 
 
 

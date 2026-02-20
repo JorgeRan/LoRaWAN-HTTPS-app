@@ -14,6 +14,7 @@ export function DeviceStatusPanel({
   metrics,
   selectedGas,
   onSelectGas,
+  gasSelectionError,
   onMetricsUpdate,
   onDataUpdate,
 }) {
@@ -57,7 +58,6 @@ export function DeviceStatusPanel({
         </div>
       </div>
 
-      {/* Main content: StatusCards and CommandSection side by side on desktop */}
       <div className="flex flex-col md:flex-row gap-6">
         <div className="flex-1 min-w-0">
           <StatusCards
@@ -68,6 +68,7 @@ export function DeviceStatusPanel({
             gasOptions={gasOptions}
             selectedGas={selectedGas}
             onSelectGas={onSelectGas}
+            gasSelectionError={gasSelectionError}
             onMetricsUpdate={onMetricsUpdate}
             onDataUpdate={onDataUpdate}
           />
