@@ -1,0 +1,32 @@
+{
+  "type": "module",
+  "dependencies": {
+    "@chirpstack/chirpstack-api": "^4.16.1",
+    "@grpc/grpc-js": "^1.14.3",
+    "axios": "^1.6.0",
+    "express": "^5.2.1",
+    "lucide-react": "^0.563.0",
+    "node-fs": "^0.1.7",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "socket.io": "^4.8.3"
+  },
+  "name": "lorawan-broker",
+  "version": "1.0.0",
+  "main": "lorawan_broker.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build-css": "tailwindcss -i ./index.css -o ./public/styles.css --minify",
+    "build-ui": "node build-ui.js",
+    "build": "npm run build-css && npm run build-ui",
+    "start": "node lorawan_broker_http.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "devDependencies": {
+    "esbuild": "^0.27.3",
+    "tailwindcss": "^4.1.18"
+  }
+}
