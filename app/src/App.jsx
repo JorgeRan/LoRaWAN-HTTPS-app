@@ -1,9 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { DeviceTabs } from "./components/DeviceTabs";
-import { StatusCards } from "./components/StatusCards";
-import { CommandSection } from "./components/CommandSection";
 import { DeviceStatusPanel } from "./components/DeviceStatusPanel";
-import { LocationCard } from "./components/LocationCard";
 import { LogTable } from "./components/LogTable";
 import { FlowChart } from "./components/FlowChart";
 import { RefreshCcw } from "lucide-react";
@@ -11,11 +8,13 @@ import { RefreshCcw } from "lucide-react";
 import {
   fetchNodes,
   fetchDeviceMetrics,
-  fetchDeviceGases,
   fetchDeviceLogs,
   connectWebSocket,
   refreshData,
-  resetSession,
+  sendStartSession,
+  fetchSessionState,
+  saveSessionState,
+  saveSelectedGas,
 } from "./services/api";
 // `stream/consumers` is a Node-only module and was removed for browser compatibility.
 // Removed unused import to fix Vite externalization error.
@@ -212,6 +211,24 @@ export function App() {
     };
     loadNodes();
 
+    const loadSessionState = async () => {
+      try {
+        const state = await fetchSessionState();
+        if (state && typeof state === "object") {
+          setSessionActive(!!state.sessionActive);
+          setSelectedGases(
+            state.selectedGases && typeof state.selectedGases === "object"
+              ? state.selectedGases
+              : {},
+          );
+        }
+      } catch (err) {
+        console.warn("Failed to load shared session state:", err);
+      }
+    };
+
+    loadSessionState();
+
     connectWebSocket((uplink) => {
       console.log("Received uplink:", uplink);
       // Update metrics state for the correct device
@@ -262,6 +279,25 @@ export function App() {
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleSessionState = (data) => {
+      if (!data || typeof data !== "object") return;
+      if (typeof data.sessionActive === "boolean") {
+        setSessionActive(data.sessionActive);
+      }
+      if (data.selectedGases && typeof data.selectedGases === "object") {
+        setSelectedGases(data.selectedGases);
+      }
+    };
+
+    socket.on("session-state", handleSessionState);
+    return () => {
+      socket.off("session-state", handleSessionState);
+    };
+  }, [socket]);
 
   useEffect(() => {
     const loadMetrics = async () => {
@@ -329,7 +365,6 @@ export function App() {
 
     setInvalidGasDeviceIds({});
     setSessionWarning(null);
-    setSessionActive(true);
     setLoading(true);
     try {
       // Prepare selections array
@@ -344,8 +379,8 @@ export function App() {
           });
         }
       });
-      const api = await import("./services/api");
-      await api.sendStartSession(selections);
+      await sendStartSession(selections);
+      setSessionActive(true);
       console.log("Sent start session for all devices:", selections);
     } catch (err) {
       setError("Failed to start session: " + err.message);
@@ -355,8 +390,20 @@ export function App() {
     }
   };
   const handleResetSession = async () => {
-    setSessionActive(false);
-    console.log("Resetting session");
+    setLoading(true);
+    try {
+      await saveSessionState({ sessionActive: false, selectedGases: {} });
+      setSessionActive(false);
+      setSelectedGases({});
+      setInvalidGasDeviceIds({});
+      setSessionWarning(null);
+      console.log("Resetting shared session state");
+    } catch (err) {
+      setError("Failed to reset session state: " + err.message);
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
 
     // try {
     //   setSessionActive(false);
@@ -485,6 +532,10 @@ export function App() {
                   selectedGas={selectedGases[dev.id]}
                   onSelectGas={(gas) => {
                     setSelectedGases((prev) => ({ ...prev, [dev.id]: gas }));
+                    saveSelectedGas(dev.id, gas).catch((err) => {
+                      console.error("Failed to sync selected gas:", err);
+                      setError("Failed to sync selected gas: " + err.message);
+                    });
                     setInvalidGasDeviceIds((prev) => {
                       if (!prev[dev.id]) return prev;
                       const next = { ...prev };

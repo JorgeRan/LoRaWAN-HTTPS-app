@@ -26,6 +26,47 @@ export async function sendStartSession(selections) {
   return await response.json();
 }
 
+export async function fetchSessionState() {
+  const response = await fetch(`${API_BASE_URL}/session/state`, {
+    method: "GET",
+    headers: { "Content-Type": "application/json" },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch session state: ${response.statusText}`);
+  }
+
+  return await response.json();
+}
+
+export async function saveSessionState({ sessionActive, selectedGases }) {
+  const response = await fetch(`${API_BASE_URL}/session/state`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sessionActive, selectedGases }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to save session state: ${response.statusText}`);
+  }
+
+  return await response.json();
+}
+
+export async function saveSelectedGas(deviceId, gas) {
+  const response = await fetch(`${API_BASE_URL}/session/state/selected-gas`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ deviceId, gas }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to save selected gas: ${response.statusText}`);
+  }
+
+  return await response.json();
+}
+
 // Fetch nodes with devices as children
 export async function fetchNodes() {
   try {

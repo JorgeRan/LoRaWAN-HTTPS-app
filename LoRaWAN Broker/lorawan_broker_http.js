@@ -16,6 +16,7 @@ const CALIBRATION_FILE =
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const SESSION_STATE_FILE = path.join(__dirname, "session_state.json");
 
 const PORT = 3000;
 const app = express();
@@ -70,7 +71,7 @@ const DEVICE_ID_MFC_2 = "mfc-node-01";
 const API_KEY =
   "NNSXS.ELCJY4CDOZIVNZAK2XKI7YDO4L3UI5MG43OXCSA.N22HW7G5ACVPRRIOLJIA2V3ZKG4YKN5BI73TVH4TKPKN7VKXDSRQ";
 
-const TTN_API_URL = "http://172.17.55.40:1885/api/v3";
+const TTN_API_URL = "http://10.42.0.1:1885/api/v3";
 
 let gatewayTime = "";
 
@@ -96,6 +97,71 @@ const MFC = {
 };
 
 const logResults = [];
+
+const DEFAULT_SESSION_STATE = {
+  sessionActive: false,
+  selectedGases: {},
+  updatedAt: null,
+};
+
+function loadSessionState() {
+  try {
+    if (!fs.existsSync(SESSION_STATE_FILE)) {
+      return { ...DEFAULT_SESSION_STATE };
+    }
+
+    const raw = fs.readFileSync(SESSION_STATE_FILE, "utf-8");
+    const parsed = JSON.parse(raw);
+
+    return {
+      ...DEFAULT_SESSION_STATE,
+      ...parsed,
+      selectedGases:
+        parsed && typeof parsed.selectedGases === "object" && parsed.selectedGases
+          ? parsed.selectedGases
+          : {},
+    };
+  } catch (error) {
+    console.error("[session-state] Failed to load state file:", error.message);
+    return { ...DEFAULT_SESSION_STATE };
+  }
+}
+
+function persistSessionState(nextState) {
+  try {
+    fs.writeFileSync(
+      SESSION_STATE_FILE,
+      JSON.stringify(nextState, null, 2),
+      "utf-8",
+    );
+  } catch (error) {
+    console.error("[session-state] Failed to persist state file:", error.message);
+  }
+}
+
+let sessionState = loadSessionState();
+
+function getPublicSessionState() {
+  return {
+    sessionActive: !!sessionState.sessionActive,
+    selectedGases: sessionState.selectedGases || {},
+    updatedAt: sessionState.updatedAt || null,
+  };
+}
+
+function updateSessionState(partial) {
+  sessionState = {
+    ...sessionState,
+    ...partial,
+    selectedGases:
+      partial && partial.selectedGases && typeof partial.selectedGases === "object"
+        ? partial.selectedGases
+        : sessionState.selectedGases,
+    updatedAt: new Date().toISOString(),
+  };
+
+  persistSessionState(sessionState);
+}
 
 function decodeUplink(bytes, results) {
   const payloadType = bytes[0];
@@ -189,67 +255,11 @@ function bytesToString(bytes) {
   return str;
 }
 
-// app.get("/", (req, res) => {
-//   res.send(`
-//     <h1>MFC LoRaWAN Controller</h1>
-//     <h2>MFC mfc_1</h2>
-//     <p>Time: ${gatewayTime} </p>
-//     <p>Last uplink: ${JSON.stringify(MFC.mfc_1.lastValue)}</p>
-//     <p>Device state: ${MFC.mfc_1.deviceState ? "ON" : "OFF"}</p>
-//     <p>Current Flow: ${MFC.mfc_1.lastFlow} </p>
-//     <p>Setpoint: ${MFC.mfc_1.lastSetpoint} ln/min</p>
-
-//     <button onclick="sendSetpoint_0()">SET SETPOINT</button>
-
-//     <h2>MFC mfc_2</h2>
-//     <p>Time: ${gatewayTime} </p>
-//     <p>Last uplink: ${JSON.stringify(MFC.mfc_2.lastValue)}</p>
-//     <p>Device state: ${MFC.mfc_2.deviceState ? "ON" : "OFF"}</p>
-//     <p>Current Flow: ${MFC.mfc_2.lastFlow} </p>
-//     <p>Setpoint: ${MFC.mfc_2.lastSetpoint} ln/min</p>
-
-//     <button onclick="sendSetpoint_1()">SET SETPOINT</button>
-
-//     <script src="/socket.io/socket.io.js"></script>
-//     <script>
-//       const socket = io();
-//       socket.on("uplink", d => console.log("Live uplink:", d));
-
-//       function send_0(cmd) {
-//         fetch('/send-command-0', {
-//           method: 'POST',
-//           headers: {'Content-Type':'application/json'},
-//           body: JSON.stringify({command: cmd})
-//         });
-//       }
-
-//       function sendSetpoint_0() {
-//         const value = prompt("Enter float setpoint (ln/min) :");
-//         fetch('/setpoint-0', {
-//           method: 'POST',
-//           headers: {'Content-Type':'application/json'},
-//           body: JSON.stringify({value})
-//         });
-//       }
-//       function send_1(cmd) {
-//         fetch('/send-command-1', {
-//           method: 'POST',
-//           headers: {'Content-Type':'application/json'},
-//           body: JSON.stringify({command: cmd})
-//         });
-//       }
-
-//       function sendSetpoint_1() {
-//         const value = prompt("Enter float setpoint (ln/min) :");
-//         fetch('/setpoint-1', {
-//           method: 'POST',
-//           headers: {'Content-Type':'application/json'},
-//           body: JSON.stringify({value})
-//         });
-//       }
-//     </script>
-//   `);
-// });
+app.get("/", (req, res) => {
+  res.send(`
+    <h1>LoRaWAN API Running</h1>
+  `);
+});
 
 app.use(express.static(path.join(__dirname, "../react-app/build")));
 
@@ -343,6 +353,11 @@ app.post("/reset", async (req, res) => {
     }
 
     io.emit("reset", { mfc, local: false, ttn: result.body });
+    updateSessionState({
+      sessionActive: false,
+      selectedGases: {},
+    });
+    io.emit("session-state", getPublicSessionState());
     res.json({
       ok: true,
       message: `MFC ${mfc} session reset`,
@@ -443,6 +458,7 @@ app.post("/start-session", async (req, res) => {
       return res.status(400).json({ error: "Missing or invalid selections array" });
     }
     let gas0 = null, gas1 = null, err0 = null, err1 = null;
+    const selectedGases = {};
     for (const sel of selections) {
       const { deviceId, gas } = sel;
       if (!deviceId || !gas) continue;
@@ -455,6 +471,7 @@ app.post("/start-session", async (req, res) => {
       }
       if (deviceId === "dev_01") gas0 = gasByte;
       if (deviceId === "dev_02") gas1 = gasByte;
+      selectedGases[deviceId] = gas;
     }
     // Compose payload: [0x21, 0x00, gas0, 0x01, gas1, ...padding]
     const buf = Buffer.alloc(6);
@@ -465,6 +482,11 @@ app.post("/start-session", async (req, res) => {
     buf[4] = gas1 !== null ? gas1 : 0x00;
     // Remaining bytes are zero padding
     await sendDownlink([...buf], 15, 0);
+    updateSessionState({
+      sessionActive: true,
+      selectedGases,
+    });
+    io.emit("session-state", getPublicSessionState());
     const results = [
       { deviceId: "dev_01", ok: gas0 !== null, gas: gas0, error: err0 },
       { deviceId: "dev_02", ok: gas1 !== null, gas: gas1, error: err1 },
@@ -729,6 +751,49 @@ app.get("/device/:deviceId/logs", (req, res) => {
   res.json(logResults);
 });
 
+app.get("/session/state", (req, res) => {
+  res.json(getPublicSessionState());
+});
+
+app.post("/session/state", (req, res) => {
+  const { sessionActive, selectedGases } = req.body || {};
+
+  const nextState = {
+    sessionActive:
+      typeof sessionActive === "boolean"
+        ? sessionActive
+        : !!sessionState.sessionActive,
+    selectedGases:
+      selectedGases && typeof selectedGases === "object" ? selectedGases : {},
+  };
+
+  updateSessionState(nextState);
+  io.emit("session-state", getPublicSessionState());
+  res.json({ ok: true, state: getPublicSessionState() });
+});
+
+app.post("/session/state/selected-gas", (req, res) => {
+  const { deviceId, gas } = req.body || {};
+
+  if (!deviceId || typeof deviceId !== "string") {
+    return res.status(400).json({ error: "Missing or invalid deviceId" });
+  }
+
+  if (!gas || typeof gas !== "string") {
+    return res.status(400).json({ error: "Missing or invalid gas" });
+  }
+
+  updateSessionState({
+    selectedGases: {
+      ...(sessionState.selectedGases || {}),
+      [deviceId]: gas,
+    },
+  });
+
+  io.emit("session-state", getPublicSessionState());
+  res.json({ ok: true, state: getPublicSessionState() });
+});
+
 io.on("connection", (s) => {
   s.emit("initial", {
     mfc_1: {
@@ -742,6 +807,8 @@ io.on("connection", (s) => {
       lastSetpoint: MFC.mfc_2.lastSetpoint,
     },
   });
+
+  s.emit("session-state", getPublicSessionState());
 });
 
 server.listen(PORT, () => {
