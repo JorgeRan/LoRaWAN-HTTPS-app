@@ -1,8 +1,8 @@
 {
   "sessionActive": false,
   "selectedGases": {
-    "dev_01": "NITROGEN",
-    "dev_02": "BUTANE"
+    "dev_01": "PROPYLENE",
+    "dev_02": "ETHANE"
   },
-  "updatedAt": "2026-02-24T19:58:44.660Z"
+  "updatedAt": "2026-02-25T14:53:23.029Z"
 }

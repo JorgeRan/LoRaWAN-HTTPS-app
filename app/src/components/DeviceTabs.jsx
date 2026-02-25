@@ -3,8 +3,8 @@ import { Wifi, Radio, Activity } from 'lucide-react'
 export function DeviceTabs({ nodes, activeNodeId, onSelectNode, activeDeviceId, onSelectDevice }) {
   return (
     <div className="w-full border-b border-slate-200 bg-white">
-      <div className="max-w-7xl mx-auto px-6">
-        <div className="flex space-x-8 overflow-x-auto no-scrollbar">
+      <div className="w-full px-6 flex items-center h-20">
+        <div className="flex-1 min-w-0 flex space-x-8 overflow-x-auto no-scrollbar">
           {nodes.map((node) => {
             const isActive = node.id === activeNodeId;
             return (
@@ -36,6 +36,9 @@ export function DeviceTabs({ nodes, activeNodeId, onSelectNode, activeDeviceId, 
               </button>
             );
           })}
+        </div>
+        <div className="flex shrink-0 ml-4 justify-end">
+          <img src="/src/assets/EERL_Logo.png" alt="EERL Logo" className="my-4 w-20 h-auto" />
         </div>
       </div>
     </div>

@@ -55,7 +55,7 @@ try {
 
 const io = new Server(server, {
   cors: {
-    origin: ["http://localhost:5173"],
+    origin: true,
     methods: ["GET", "POST"],
     credentials: true,
   },
@@ -78,7 +78,7 @@ let gatewayTime = "";
 const MFC = {
   mfc_1: {
     id: 0,
-    name: "X",
+    name: "BK",
     lastValue: null,
     deviceState: false,
     lastFlow: 0.0,
@@ -87,7 +87,7 @@ const MFC = {
   },
   mfc_2: {
     id: 1,
-    name: "E",
+    name: "BL",
     lastValue: null,
     deviceState: false,
     lastFlow: 0.0,
@@ -161,6 +161,113 @@ function updateSessionState(partial) {
   };
 
   persistSessionState(sessionState);
+}
+
+function getDeviceIdFromMfcId(mfcId) {
+  if (Number(mfcId) === 0) return "dev_02";
+  if (Number(mfcId) === 1) return "dev_01";
+  return null;
+}
+
+function buildNodesResponse() {
+  return [
+    {
+      id: "node_01",
+      name: "MFC-1",
+      status: "online",
+      type: "Gas Meter",
+      devices: [
+        {
+          id: "dev_01",
+          name: `MFC-${MFC.mfc_1.name}`,
+          status: MFC.mfc_1.deviceState ? "online" : "offline",
+          type: "Gas Meter",
+        },
+        {
+          id: "dev_02",
+          name: `MFC-${MFC.mfc_2.name}`,
+          status: MFC.mfc_2.deviceState ? "online" : "offline",
+          type: "Gas Meter",
+        },
+      ],
+    },
+    {
+      id: "node_02",
+      name: "MFC-2",
+      status: "online",
+      type: "Gas Meter",
+      devices: [
+        {
+          id: "dev_03",
+          name: "MFC-BM",
+          status: "online",
+          type: "Gas Meter",
+        },
+        {
+          id: "dev_04",
+          name: "Test MFC-1",
+          status: "online",
+          type: "Test MFC",
+        },
+      ],
+    },
+    {
+      id: "node_03",
+      name: "AMT-06",
+      status: "online",
+      type: "Wind Sensor",
+      devices: [
+        {
+          id: "dev_05",
+          name: "AMT-06",
+          status: "online",
+          type: "Wind Sensor",
+        },
+      ],
+    },
+  ];
+}
+
+function getMetricsByDeviceId(deviceId) {
+  if (deviceId === "dev_01") {
+    return {
+      name: MFC.mfc_1.name,
+      setpoint: MFC.mfc_1.lastSetpoint,
+      flow: MFC.mfc_1.lastFlow,
+    };
+  }
+  if (deviceId === "dev_02") {
+    return {
+      name: MFC.mfc_2.name,
+      setpoint: MFC.mfc_2.lastSetpoint,
+      flow: MFC.mfc_2.lastFlow,
+    };
+  }
+  if (deviceId === "dev_03") {
+    return { setpoint: 10, flow: 20 };
+  }
+  if (deviceId === "dev_04") {
+    return { setpoint: 20, flow: 20 };
+  }
+  if (deviceId === "dev_05") {
+    return { speed: 20, direction: "NE" };
+  }
+  return null;
+}
+
+function emitStateSync(target = io) {
+  target.emit("state-sync", {
+    nodes: buildNodesResponse(),
+    metrics: {
+      dev_01: getMetricsByDeviceId("dev_01"),
+      dev_02: getMetricsByDeviceId("dev_02"),
+      dev_03: getMetricsByDeviceId("dev_03"),
+      dev_04: getMetricsByDeviceId("dev_04"),
+      dev_05: getMetricsByDeviceId("dev_05"),
+    },
+    logs: logResults,
+    session: getPublicSessionState(),
+  });
 }
 
 function decodeUplink(bytes, results) {
@@ -358,6 +465,7 @@ app.post("/reset", async (req, res) => {
       selectedGases: {},
     });
     io.emit("session-state", getPublicSessionState());
+    emitStateSync();
     res.json({
       ok: true,
       message: `MFC ${mfc} session reset`,
@@ -392,7 +500,31 @@ app.post("/uplink", (req, res) => {
       console.log("Raw payload:", arrayPayload);
       console.log("Decoded:", decoded);
 
-      io.emit("uplink", decoded[0]);
+      decoded.forEach((entry) => {
+        if (entry && entry.type === "status") {
+          const deviceId = getDeviceIdFromMfcId(entry.mfcId);
+          const enriched = {
+            ...entry,
+            deviceId,
+          };
+          io.emit("uplink", enriched);
+          io.emit("metrics-update", {
+            deviceId,
+            flow: Number(entry.flow),
+            setpoint: Number(entry.setpoint),
+            name: entry.device,
+          });
+          io.emit("device-update", {
+            deviceId,
+            name: entry.device ? `MFC-${entry.device}` : undefined,
+            status: "online",
+          });
+        } else if (entry) {
+          io.emit("uplink", entry);
+        }
+      });
+
+      emitStateSync();
     }
 
     res.sendStatus(200);
@@ -473,20 +605,20 @@ app.post("/start-session", async (req, res) => {
       if (deviceId === "dev_02") gas1 = gasByte;
       selectedGases[deviceId] = gas;
     }
-    // Compose payload: [0x21, 0x00, gas0, 0x01, gas1, ...padding]
     const buf = Buffer.alloc(6);
     buf[0] = 0x21;
     buf[1] = 0x00;
     buf[2] = gas0 !== null ? gas0 : 0x00;
     buf[3] = 0x01;
     buf[4] = gas1 !== null ? gas1 : 0x00;
-    // Remaining bytes are zero padding
+
     await sendDownlink([...buf], 15, 0);
     updateSessionState({
       sessionActive: true,
       selectedGases,
     });
     io.emit("session-state", getPublicSessionState());
+    emitStateSync();
     const results = [
       { deviceId: "dev_01", ok: gas0 !== null, gas: gas0, error: err0 },
       { deviceId: "dev_02", ok: gas1 !== null, gas: gas1, error: err1 },
@@ -529,6 +661,11 @@ app.post("/send-command-0", async (req, res) => {
     if (command === "on") MFC.mfc_2.deviceState = true;
     if (command === "off") MFC.mfc_2.deviceState = false;
     if (command === "toggle") MFC.mfc_2.deviceState = !MFC.mfc_2.deviceState;
+    io.emit("device-update", {
+      deviceId: "dev_02",
+      status: MFC.mfc_2.deviceState ? "online" : "offline",
+    });
+    emitStateSync();
     res.json({ ok: true });
   } catch (err) {
     console.error("Send command error:", err);
@@ -553,6 +690,24 @@ app.post("/setpoint-0", async (req, res) => {
     await sendDownlink([...buf], 15, 0);
     MFC.mfc_1.lastSetpoint = value;
     console.log(`[/setpoint-0] Updated lastSetpoint to ${value}`);
+    io.emit("uplink", {
+      type: "status",
+      mfcId: 1,
+      deviceId: "dev_01",
+      device: MFC.mfc_1.name,
+      flow: Number(MFC.mfc_1.lastFlow),
+      setpoint: Number(value),
+      unit: "LN/min",
+      message: "Setpoint updated",
+      payload: "",
+    });
+    io.emit("metrics-update", {
+      deviceId: "dev_01",
+      flow: Number(MFC.mfc_1.lastFlow),
+      setpoint: Number(value),
+      name: MFC.mfc_1.name,
+    });
+    emitStateSync();
     res.json({ ok: true });
   } catch (err) {
     console.error("Setpoint error:", err);
@@ -574,6 +729,11 @@ app.post("/send-command-1", async (req, res) => {
     if (command === "on") MFC.mfc_1.deviceState = true;
     if (command === "off") MFC.mfc_1.deviceState = false;
     if (command === "toggle") MFC.mfc_1.deviceState = !MFC.mfc_1.deviceState;
+    io.emit("device-update", {
+      deviceId: "dev_01",
+      status: MFC.mfc_1.deviceState ? "online" : "offline",
+    });
+    emitStateSync();
     res.json({ ok: true });
   } catch (err) {
     console.error("Send command error:", err);
@@ -598,6 +758,24 @@ app.post("/setpoint-1", async (req, res) => {
     await sendDownlink([...buf], 15, 0);
     MFC.mfc_2.lastSetpoint = value;
     console.log(`[/setpoint-1] Updated lastSetpoint to ${value}`);
+    io.emit("uplink", {
+      type: "status",
+      mfcId: 0,
+      deviceId: "dev_02",
+      device: MFC.mfc_2.name,
+      flow: Number(MFC.mfc_2.lastFlow),
+      setpoint: Number(value),
+      unit: "LN/min",
+      message: "Setpoint updated",
+      payload: "",
+    });
+    io.emit("metrics-update", {
+      deviceId: "dev_02",
+      flow: Number(MFC.mfc_2.lastFlow),
+      setpoint: Number(value),
+      name: MFC.mfc_2.name,
+    });
+    emitStateSync();
     res.json({ ok: true });
   } catch (err) {
     console.error("Setpoint error:", err);
@@ -606,69 +784,7 @@ app.post("/setpoint-1", async (req, res) => {
 });
 
 app.get("/nodes", (req, res) => {
-  res.json([
-    {
-      id: "node_01",
-      name: "MFC-1",
-      status: "online",
-      type: "Gas Meter",
-      devices: [
-        {
-          id: "dev_01",
-          name: `MFC-${MFC.mfc_1.name}`,
-          status: MFC.mfc_1.deviceState ? "online" : "offline",
-          type: "Gas Meter",
-        },
-        {
-          id: "dev_02",
-          name: `MFC-${MFC.mfc_2.name}`,
-          status: MFC.mfc_2.deviceState ? "online" : "offline",
-          type: "Gas Meter",
-        },
-      ],
-    },
-    {
-      id: "node_02",
-      name: "MFC-2",
-      status: "online",
-      type: "Gas Meter",
-      devices: [
-        {
-          id: "dev_03",
-          name: "MFC-BM",
-          status: "online",
-          type: "Gas Meter",
-        },
-        {
-          id: "dev_04",
-          name: "Test MFC-1",
-          status: "online",
-          type: "Test MFC",
-        },
-      ],
-    },
-    {
-      id: "node_03",
-      name: "AMT-06",
-      status: "online",
-      type: "Wind Sensor",
-      devices: [
-        {
-          id: "dev_05",
-          name: "AMT-06",
-          status: "online",
-          type: "Wind Sensor",
-        },
-
-        // {
-        //   id: "dev_04",
-        //   name: "Test MFC-2",
-        //   status: "offline",
-        //   type: "Test MFC",
-        // },
-      ],
-    },
-  ]);
+  res.json(buildNodesResponse());
 });
 
 app.get("/device/:deviceName/fetch-gas", async (req, res) => {
@@ -710,36 +826,13 @@ app.get("/device/:deviceName/fetch-gas", async (req, res) => {
 app.get("/device/:deviceId/metrics", (req, res) => {
   const { deviceId } = req.params;
 
-  if (deviceId === "dev_01") {
-    res.json({
-      name: MFC.mfc_1.name,
-      setpoint: MFC.mfc_1.lastSetpoint,
-      flow: MFC.mfc_1.lastFlow,
-    });
-  } else if (deviceId === "dev_02") {
-    res.json({
-      name: MFC.mfc_2.name,
-      setpoint: MFC.mfc_2.lastSetpoint,
-      flow: MFC.mfc_2.lastFlow,
-    });
-  } else if (deviceId === "dev_03") {
-    res.json({
-      setpoint: 10,
-      flow: 20,
-    });
-  } else if (deviceId === "dev_04") {
-    res.json({
-      setpoint: 20,
-      flow: 20,
-    });
-  } else if (deviceId === "dev_05") {
-    res.json({
-      speed: 20,
-      direction: "NE",
-    });
-  } else {
+  const metrics = getMetricsByDeviceId(deviceId);
+  if (!metrics) {
     res.status(404).json({ error: "Device not found" });
+    return;
   }
+
+  res.json(metrics);
 });
 
 app.get("/device/:deviceId/logs", (req, res) => {
@@ -791,6 +884,7 @@ app.post("/session/state/selected-gas", (req, res) => {
   });
 
   io.emit("session-state", getPublicSessionState());
+  emitStateSync();
   res.json({ ok: true, state: getPublicSessionState() });
 });
 
@@ -809,9 +903,10 @@ io.on("connection", (s) => {
   });
 
   s.emit("session-state", getPublicSessionState());
+  emitStateSync(s);
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, "0.0.0.0", () => {
   const proto = usingHttps ? "https" : "http";
-  console.log(`${proto}://localhost:${PORT}`);
+  console.log(`${proto}://0.0.0.0:${PORT}`);
 });

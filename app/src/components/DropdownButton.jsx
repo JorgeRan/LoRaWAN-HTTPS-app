@@ -35,6 +35,10 @@ export function DropdownButton({ selected: selectedProp, onChange, sessionActive
 
   const currentLabel = gasOptions.find((g) => g.value === selected)?.label || 'Gas'
 
+  if (gasOptions.length === 0) {
+    hasError = false; // Don't show error state if there are simply no options
+  }
+
   return (
     <div className="relative inline-block" ref={rootRef}>
       <button

@@ -14,32 +14,37 @@ export function DeviceStatusPanel({
   metrics,
   selectedGas,
   onSelectGas,
+  onGasOptionsLoaded,
   gasSelectionError,
   onMetricsUpdate,
   onDataUpdate,
 }) {
   const [gasOptions, setGasOptions] = useState([]);
-  // All info comes from device prop (which is updated in real time by App)
-  // No local metrics state or fetch needed
+  
 
   useEffect(() => {
     async function fetchGases() {
       const deviceName = device?.name?.slice(4, 6);
-      if (!deviceName) return;
+      if (!deviceName) {
+        setGasOptions([]);
+        if (onGasOptionsLoaded) onGasOptionsLoaded([]);
+        return;
+      }
       try {
         const result = await fetchDeviceGases(deviceName);
         const gases = result?.gases || [];
-        // Transform to DropdownButton format
         const options = gases.map((g) => ({ label: g, value: g }));
         setGasOptions(options);
+        if (onGasOptionsLoaded) onGasOptionsLoaded(options);
         console.log(`[App] Fetched gases for ${device?.name}:`, options);
       } catch (err) {
         console.error("Error fetching gases:", err);
         setGasOptions([]);
+        if (onGasOptionsLoaded) onGasOptionsLoaded([]);
       }
     }
     fetchGases();
-  }, [device?.name]);
+  }, [device?.name, onGasOptionsLoaded]);
 
    
 

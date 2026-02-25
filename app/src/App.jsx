@@ -16,10 +16,7 @@ import {
   saveSessionState,
   saveSelectedGas,
 } from "./services/api";
-// `stream/consumers` is a Node-only module and was removed for browser compatibility.
-// Removed unused import to fix Vite externalization error.
 
-// Fallback mock data - replace with API calls
 const MOCK_NODES = [
   {
     id: "node_01",
@@ -137,12 +134,11 @@ export function App() {
   const [error, setError] = useState(null);
   const [socket, setSocket] = useState(null);
   const [sessionActive, setSessionActive] = useState(false);
-  // Track selected gas per device
   const [selectedGases, setSelectedGases] = useState({});
+  const [deviceGasOptions, setDeviceGasOptions] = useState({});
   const [invalidGasDeviceIds, setInvalidGasDeviceIds] = useState({});
   const [sessionWarning, setSessionWarning] = useState(null);
-  // Map of sensors available per end-device. Sensor ids correspond to suffixes used in FlowChart (e.g., 'mfc0', 'mfc1')
-  // Sensors per device, now with test MFCs for dev_02
+  
   const DEVICE_SENSORS = {
     dev_01: [
       { id: "mfc1", label: "MFC-BL" },
@@ -160,14 +156,26 @@ export function App() {
     useEffect(() => {
       if (!socket) return;
       function handleUplink(uplink) {
-        if (!uplink || !uplink.deviceId) return;
+        if (!uplink) return;
+        const mfcIdToDeviceId = {
+          0: "dev_02",
+          1: "dev_01",
+        };
+        const resolvedDeviceId = uplink.deviceId || mfcIdToDeviceId[uplink.mfcId];
+        if (!resolvedDeviceId) return;
         setNodes((prevNodes) => {
           return prevNodes.map((node) => {
             if (!node.devices) return node;
             return {
               ...node,
               devices: node.devices.map((dev) =>
-                dev.id === uplink.deviceId ? { ...dev, ...uplink } : dev,
+                dev.id === resolvedDeviceId
+                  ? {
+                      ...dev,
+                      ...(uplink.device ? { name: `MFC-${uplink.device}` } : {}),
+                      status: "online",
+                    }
+                  : dev,
               ),
             };
           });
@@ -181,7 +189,7 @@ export function App() {
   }
 
   const [visibleSensors, setVisibleSensors] = useState(() => {
-    // default: show all sensors for each device
+    
     const obj = {};
     Object.keys(DEVICE_SENSORS).forEach((d) => {
       obj[d] = DEVICE_SENSORS[d].map((s) => s.id);
@@ -195,7 +203,7 @@ export function App() {
         setLoading(true);
         const data = await fetchNodes();
         setNodes(data);
-        // Set default active node/device
+        
         if (data.length > 0) {
           setActiveNodeId(data[0].id);
           if (data[0].devices && data[0].devices.length > 0) {
@@ -231,9 +239,8 @@ export function App() {
 
     connectWebSocket((uplink) => {
       console.log("Received uplink:", uplink);
-      // Update metrics state for the correct device
+
       if (uplink && uplink.type === "status") {
-        // Map mfcId to deviceId: mfc 0 -> dev_02, mfc 1 -> dev_01
         const mfcIdToDeviceId = {
           0: "dev_02", // MFC-BK
           1: "dev_01", // MFC-BL
@@ -245,18 +252,17 @@ export function App() {
             ...prev,
             [deviceId]: {
               ...(prev[deviceId] || {}),
+              ...(uplink.device ? { name: uplink.device } : {}),
               flow: Number.isFinite(Number(uplink.flow))
                 ? Number(uplink.flow)
                 : (prev[deviceId]?.flow ?? 0),
               setpoint: Number.isFinite(Number(uplink.setpoint))
                 ? Number(uplink.setpoint)
                 : (prev[deviceId]?.setpoint ?? 0),
-              // Add other metrics as needed
             },
           }));
         }
       }
-      // Add log
       const newLog = {
         id: String(Date.now()),
         timestamp: new Date().toLocaleString(),
@@ -264,7 +270,7 @@ export function App() {
         message: uplink.message || JSON.stringify(uplink),
         payload: uplink.payload,
       };
-      setLogs((prev) => [newLog, ...prev.slice(0, -1)]);
+      setLogs((prev) => [newLog, ...prev.slice(0, 199)]);
     })
       .then((newSocket) => {
         setSocket(newSocket);
@@ -293,9 +299,74 @@ export function App() {
       }
     };
 
+    const handleMetricsUpdate = (payload) => {
+      if (!payload || !payload.deviceId) return;
+      setMetrics((prev) => ({
+        ...prev,
+        [payload.deviceId]: {
+          ...(prev[payload.deviceId] || {}),
+          ...(payload.name ? { name: payload.name } : {}),
+          flow: Number.isFinite(Number(payload.flow))
+            ? Number(payload.flow)
+            : (prev[payload.deviceId]?.flow ?? 0),
+          setpoint: Number.isFinite(Number(payload.setpoint))
+            ? Number(payload.setpoint)
+            : (prev[payload.deviceId]?.setpoint ?? 0),
+        },
+      }));
+    };
+
+    const handleDeviceUpdate = (payload) => {
+      if (!payload || !payload.deviceId) return;
+      setNodes((prevNodes) =>
+        prevNodes.map((node) => ({
+          ...node,
+          devices: (node.devices || []).map((dev) =>
+            dev.id === payload.deviceId
+              ? {
+                  ...dev,
+                  ...(payload.name ? { name: payload.name } : {}),
+                  ...(payload.status ? { status: payload.status } : {}),
+                }
+              : dev,
+          ),
+        })),
+      );
+    };
+
+    const handleStateSync = (payload) => {
+      if (!payload || typeof payload !== "object") return;
+      if (Array.isArray(payload.nodes) && payload.nodes.length > 0) {
+        setNodes(payload.nodes);
+      }
+      if (payload.metrics && typeof payload.metrics === "object") {
+        setMetrics((prev) => ({ ...prev, ...payload.metrics }));
+      }
+      if (Array.isArray(payload.logs)) {
+        setLogs(payload.logs);
+      }
+      if (payload.session && typeof payload.session === "object") {
+        if (typeof payload.session.sessionActive === "boolean") {
+          setSessionActive(payload.session.sessionActive);
+        }
+        if (
+          payload.session.selectedGases &&
+          typeof payload.session.selectedGases === "object"
+        ) {
+          setSelectedGases(payload.session.selectedGases);
+        }
+      }
+    };
+
     socket.on("session-state", handleSessionState);
+    socket.on("metrics-update", handleMetricsUpdate);
+    socket.on("device-update", handleDeviceUpdate);
+    socket.on("state-sync", handleStateSync);
     return () => {
       socket.off("session-state", handleSessionState);
+      socket.off("metrics-update", handleMetricsUpdate);
+      socket.off("device-update", handleDeviceUpdate);
+      socket.off("state-sync", handleStateSync);
     };
   }, [socket]);
 
@@ -339,7 +410,7 @@ export function App() {
     }
   }, [activeDeviceId]);
 
-  // Find active node and device
+
   const activeNode = nodes.find((n) => n.id === activeNodeId) || nodes[0];
   const activeDevice =
     activeNode && activeNode.devices
@@ -348,8 +419,14 @@ export function App() {
 
   const handleStartSession = async () => {
     const currentNodeDevices = activeNode?.devices || [];
+
+    const requiresGasSelection = (deviceId) => {
+      const options = deviceGasOptions[deviceId];
+      return Array.isArray(options) && options.length > 0;
+    };
+
     const missingGasDevices = currentNodeDevices.filter(
-      (dev) => !selectedGases[dev.id],
+      (dev) => requiresGasSelection(dev.id) && !selectedGases[dev.id],
     );
 
     if (missingGasDevices.length > 0) {
@@ -367,7 +444,7 @@ export function App() {
     setSessionWarning(null);
     setLoading(true);
     try {
-      // Prepare selections array
+      
       const selections = [];
       nodes.forEach((node) => {
         if (node.devices) {
@@ -440,6 +517,7 @@ export function App() {
         activeDeviceId={activeDeviceId}
         onSelectDevice={setActiveDeviceId}
       />
+     
 
       <main className="max-w-8xl mx-auto px-8 py-8">
         {/* Top Grid: Status & Location */}
@@ -530,6 +608,12 @@ export function App() {
                   onError={setError}
                   metrics={metrics[dev.id] || { flow: 0, setpoint: 0 }}
                   selectedGas={selectedGases[dev.id]}
+                  onGasOptionsLoaded={(options) => {
+                    setDeviceGasOptions((prev) => ({
+                      ...prev,
+                      [dev.id]: Array.isArray(options) ? options : [],
+                    }));
+                  }}
                   onSelectGas={(gas) => {
                     setSelectedGases((prev) => ({ ...prev, [dev.id]: gas }));
                     saveSelectedGas(dev.id, gas).catch((err) => {
@@ -548,7 +632,7 @@ export function App() {
                   onDataUpdate={(buffer) =>
                     setChartBuffers((prev) => ({
                       ...prev,
-                      [activeDeviceId]: buffer,
+                      [dev.id]: buffer,
                     }))
                   }
                   onMetricsUpdate={setMetrics}
