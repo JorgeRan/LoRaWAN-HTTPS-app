@@ -54,6 +54,8 @@ npm install
 
 This will install `socket.io-client` along with other dependencies.
 
+Before starting the broker, copy `LoRaWAN Broker/.env.example` to `LoRaWAN Broker/.env` and fill in your TTN API URL, access token, application IDs, and device IDs. If you want the React app to talk to a different broker host, copy `app/.env.example` to `app/.env` and update `VITE_API_BASE_URL`.
+
 ### 2. Start the LoRaWAN Broker
 
 In the `LoRaWAN Broker` directory:
@@ -62,7 +64,7 @@ In the `LoRaWAN Broker` directory:
 node lorawan_broker_http.js
 ```
 
-The broker will start on `http://localhost:3000`
+The broker will start on `http://localhost:3000` by default, or on the port provided by `PORT`.
 
 ### 3. Start the React App
 
@@ -80,7 +82,7 @@ The app will start on `http://localhost:5173` (or another port if 5173 is in use
 
 #### Get All Devices
 ```http
-GET http://localhost:3000/devices
+GET http://localhost:3000/nodes
 ```
 
 Response:
@@ -245,10 +247,19 @@ To change this, edit `src/services/api.js`:
 const API_BASE_URL = 'http://localhost:3000'  // Change this
 ```
 
+### TTN Settings
+The broker reads these environment variables at startup:
+
+- `TTN_API_URL` or `TTN_API_BASE_URL`
+- `TTN_API_KEY` or `TTN_ACCESS_TOKEN`
+- `TTN_APP_ID_MFC_1`, `TTN_DEVICE_ID_MFC_1`
+- `TTN_APP_ID_MFC_2`, `TTN_DEVICE_ID_MFC_2`
+- `PORT`
+
 ### Broker Port
-The broker runs on port 3000 by default. To change it, edit `LoRaWAN Broker/lorawan_broker_http.js`:
-```javascript
-const PORT = 3000  // Change this
+The broker runs on port 3000 by default. To change it, set `PORT` before starting the process:
+```bash
+PORT=4000 node lorawan_broker_http.js
 ```
 
 ## Troubleshooting

@@ -3,7 +3,6 @@ import { Server } from "socket.io";
 import http from "http";
 import https from "https";
 import fs from "fs";
-import fetch from "node-fetch";
 import { decode } from "punycode";
 import { Console } from "console";
 import path from "path";
@@ -12,13 +11,27 @@ import { exec } from "child_process";
 import { open } from "node:fs/promises";
 
 const CALIBRATION_FILE =
-  "/Users/jorgerangel/Documents/dev/LoRaWAN-HTTPS-app/LoRaWAN Broker/MFCCalibrations-ReadDirectlyByFlareCode.txt";
+  "/home/gimbal/Desktop/LoRaWAN-Gateway/LoRaWAN-HTTP-app/LoRaWAN Broker/MFCCalibrations-ReadDirectlyByFlareCode.txt";
+
+  
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const SESSION_STATE_FILE = path.join(__dirname, "session_state.json");
 
-const PORT = 3000;
+function getEnvValue(name, fallback = "") {
+  const value = process.env[name];
+  return typeof value === "string" && value.trim() ? value.trim() : fallback;
+}
+
+const TTN_API_URL = getEnvValue(
+  "TTN_API_URL",
+  getEnvValue("TTN_API_BASE_URL", "http://localhost:1885/api/v3"),
+);
+// const TTN_API_KEY = "NNSXS.GXOA2EILT5XKJ2UWLP5YYAAM3CDESAV5EI4SJEI.BOJYKZGK72B474BKGV63MFVNCUXTP42QB5HPWT6VTPSZQNWPE7PA"; Gateway
+const TTN_API_KEY = "NNSXS.F64BG4RWIOJTHE5NL4WYCZDX3NK6AM75X5663FI.65SBCRKT7YSYH5ZK6W77JLGRFWK6XCCFHQ4L5DLUWTY4HDPLCKQA" //MFC Control Boxes
+
+const PORT = Number(process.env.PORT || 3000);
 const app = express();
 
 app.use((req, res, next) => {
@@ -62,16 +75,17 @@ const io = new Server(server, {
   transports: ["websocket", "polling"],
 });
 
-const APP_ID_MFC_1 = "eerl-mfc";
-const DEVICE_ID_MFC_1 = "mfc-node-01";
+const APP_ID_MFC_1 = getEnvValue("TTN_APP_ID_MFC_1", "mfc-control-boxes");
+const DEVICE_ID_MFC_1 = getEnvValue("TTN_DEVICE_ID_MFC_1", "mfc-box-1");
 
-const APP_ID_MFC_2 = "eerl-mfc";
-const DEVICE_ID_MFC_2 = "mfc-node-01";
+const APP_ID_MFC_2 = getEnvValue("TTN_APP_ID_MFC_2", APP_ID_MFC_1);
+const DEVICE_ID_MFC_2 = getEnvValue("TTN_DEVICE_ID_MFC_2", "mfc-box-2");
 
-const API_KEY =
-  "NNSXS.ELCJY4CDOZIVNZAK2XKI7YDO4L3UI5MG43OXCSA.N22HW7G5ACVPRRIOLJIA2V3ZKG4YKN5BI73TVH4TKPKN7VKXDSRQ";
-
-const TTN_API_URL = "http://10.42.0.1:1885/api/v3";
+if (!TTN_API_KEY) {
+  console.warn(
+    "[ttn] TTN_API_KEY is not configured. Downlink operations will fail until it is set.",
+  );
+}
 
 let gatewayTime = "";
 
@@ -368,7 +382,15 @@ app.get("/", (req, res) => {
   `);
 });
 
-app.use(express.static(path.join(__dirname, "../react-app/build")));
+const staticBuildDirCandidates = [
+  path.join(__dirname, "../app/dist"),
+  path.join(__dirname, "../react-app/build"),
+];
+const staticBuildDir = staticBuildDirCandidates.find((dir) => fs.existsSync(dir));
+
+if (staticBuildDir) {
+  app.use(express.static(staticBuildDir));
+}
 
 async function resetSession(mfc) {
   let appId = "";
@@ -554,16 +576,32 @@ async function sendDownlink(bytes, fPort = 15, mfc) {
     url = `${TTN_API_URL}/as/applications/${APP_ID_MFC_2}/devices/${DEVICE_ID_MFC_2}/down/replace`;
   }
 
+  if (!url) {
+    throw new Error(`Unsupported MFC id: ${mfc}`);
+  }
+
+  if (!TTN_API_KEY) {
+    throw new Error("TTN_API_KEY is not configured");
+  }
+
   const r = await fetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${API_KEY}`,
+      Authorization: `Bearer ${TTN_API_KEY}`,
     },
     body: JSON.stringify(payload),
   });
 
-  if (!r.ok) throw new Error(await r.text());
+  if (!r.ok) {
+    const body = await r.text();
+    if (body.includes("no_application_rights")) {
+      throw new Error(
+        `${body} \nCheck that TTN_API_KEY belongs to the same TTN application as ${APP_ID_MFC_1}/${APP_ID_MFC_2} and has downlink rights for that application.`,
+      );
+    }
+    throw new Error(body);
+  }
 }
 
 app.post("/start-session", async (req, res) => {

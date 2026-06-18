@@ -1,8 +1,12 @@
 #!/bin/bash
 
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
 # Start the broker in the background
 echo "🚀 Starting LoRaWAN Broker..."
-cd /Users/jorgerangel/Documents/dev/LoRaWAN-HTTPS-app/LoRaWAN\ Broker
+cd "$SCRIPT_DIR/LoRaWAN Broker"
 node lorawan_broker_http.js > /tmp/broker.log 2>&1 &
 BROKER_PID=$!
 echo "Broker started with PID: $BROKER_PID"
@@ -13,12 +17,12 @@ sleep 3
 # Test broker API
 echo ""
 echo "🧪 Testing broker API..."
-curl -s http://localhost:3000/devices | json_pp || curl -s http://localhost:3000/devices
+curl -s http://localhost:3000/nodes | json_pp || curl -s http://localhost:3000/nodes
 
 # Start React app in the background
 echo ""
 echo "🚀 Starting React App..."
-cd /Users/jorgerangel/Documents/dev/LoRaWAN-HTTPS-app/my-app
+cd "$SCRIPT_DIR/app"
 npm run dev > /tmp/react.log 2>&1 &
 REACT_PID=$!
 echo "React app started with PID: $REACT_PID"

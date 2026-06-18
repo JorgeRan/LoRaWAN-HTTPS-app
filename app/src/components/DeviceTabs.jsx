@@ -38,7 +38,7 @@ export function DeviceTabs({ nodes, activeNodeId, onSelectNode, activeDeviceId, 
           })}
         </div>
         <div className="flex shrink-0 ml-4 justify-end">
-          <img src="/src/assets/EERL_Logo.png" alt="EERL Logo" className="my-4 w-20 h-auto" />
+          <img src="/EERL_Logo.png" alt="EERL Logo" className="my-4 w-20 h-auto" />
         </div>
       </div>
     </div>
